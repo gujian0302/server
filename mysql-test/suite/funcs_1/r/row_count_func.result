@@ -10,18 +10,22 @@ INSERT INTO t1 VALUES (1), (2), (3);
 # -- Check 1.
 SELECT * FROM t1 INTO OUTFILE "MYSQL_TMP_DIR/bug21818.txt";
 affected rows: 3
+Warnings:
+Warning	1287	'<select expression> INTO <destination>;' is deprecated and will be removed in a future release. Please use 'SELECT <select list> INTO <destination> FROM...' instead
 
 SELECT ROW_COUNT();
 ROW_COUNT()
-3
+-1
 
 # -- Check 2.
 SELECT a FROM t1 LIMIT 1 INTO @a;
 affected rows: 1
+Warnings:
+Warning	1287	'<select expression> INTO <destination>;' is deprecated and will be removed in a future release. Please use 'SELECT <select list> INTO <destination> FROM...' instead
 
 SELECT ROW_COUNT();
 ROW_COUNT()
-1
+-1
 
 # -- Check 3.
 DROP DATABASE IF EXISTS mysqltest1;
