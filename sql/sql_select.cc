@@ -18438,7 +18438,7 @@ create_internal_tmp_table_from_heap(THD *thd, TABLE *table,
   new_table.no_rows= table->no_rows;
   if (create_internal_tmp_table(&new_table, table->key_info, start_recinfo,
                                 recinfo,
-                                thd->lex->builtin_select.options |
+                                thd->lex->first_select_lex()->options |
 			        thd->variables.option_bits))
     goto err2;
   if (open_tmp_table(&new_table))
@@ -26106,18 +26106,21 @@ void st_select_lex::print(THD *thd, String *str, enum_query_type query_type)
     str->append(STRING_WITH_LEN("sql_buffer_result "));
   if (options & OPTION_FOUND_ROWS)
     str->append(STRING_WITH_LEN("sql_calc_found_rows "));
-  switch (sql_cache)
+  if (this == parent_lex->first_select_lex())
   {
-    case SQL_NO_CACHE:
-      str->append(STRING_WITH_LEN("sql_no_cache "));
-      break;
-    case SQL_CACHE:
-      str->append(STRING_WITH_LEN("sql_cache "));
-      break;
-    case SQL_CACHE_UNSPECIFIED:
-      break;
-    default:
-      DBUG_ASSERT(0);
+    switch (parent_lex->sql_cache)
+    {
+      case LEX::SQL_NO_CACHE:
+        str->append(STRING_WITH_LEN("sql_no_cache "));
+        break;
+      case LEX::SQL_CACHE:
+        str->append(STRING_WITH_LEN("sql_cache "));
+        break;
+      case LEX::SQL_CACHE_UNSPECIFIED:
+        break;
+      default:
+        DBUG_ASSERT(0);
+    }
   }
 
   //Item List

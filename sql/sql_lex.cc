@@ -659,6 +659,7 @@ void LEX::start(THD *thd_arg)
 
   DBUG_ASSERT(!explain);
 
+  lex_options= 0;
   context_stack.empty();
   //empty select_stack
   select_stack_top= 0;
@@ -694,7 +695,7 @@ void LEX::start(THD *thd_arg)
   builtin_select.link_next= builtin_select.slave= builtin_select.next= 0;
   builtin_select.link_prev= (st_select_lex_node**)&(all_selects_list);
   builtin_select.options= 0;
-  builtin_select.sql_cache= SELECT_LEX::SQL_CACHE_UNSPECIFIED;
+  sql_cache= LEX::SQL_CACHE_UNSPECIFIED;
   builtin_select.init_order();
   builtin_select.group_list.empty();
   if (builtin_select.group_list_ptrs)
@@ -1750,7 +1751,7 @@ int Lex_input_stream::lex_one_token(YYSTYPE *yylval, THD *thd)
       return(TEXT_STRING);
     }
     case MY_LEX_COMMENT:                       //  Comment
-      lex->builtin_select.options|= OPTION_FOUND_COMMENT;
+      lex->lex_options|= OPTION_LEX_FOUND_COMMENT;
       while ((c= yyGet()) != '\n' && c) ;
       yyUnget();                          // Safety against eof
       state= MY_LEX_START;                     // Try again
@@ -1761,7 +1762,7 @@ int Lex_input_stream::lex_one_token(YYSTYPE *yylval, THD *thd)
         state= MY_LEX_CHAR;                     // Probable division
         break;
       }
-      lex->builtin_select.options|= OPTION_FOUND_COMMENT;
+      lex->lex_options|= OPTION_LEX_FOUND_COMMENT;
       /* Reject '/' '*', since we might need to turn off the echo */
       yyUnget();
 
@@ -2269,7 +2270,6 @@ void trim_whitespace(CHARSET_INFO *cs, LEX_CSTRING *str, size_t * prefix_length)
 void st_select_lex_node::init_query_common()
 {
   options= 0;
-  sql_cache= SQL_CACHE_UNSPECIFIED;
   set_linkage(UNSPECIFIED_TYPE);
   distinct= TRUE;
   no_table_names_allowed= 0;
@@ -2365,7 +2365,6 @@ void st_select_lex::init_select()
   table_join_options= 0;
   in_sum_expr= with_wild= 0;
   options= 0;
-  sql_cache= SQL_CACHE_UNSPECIFIED;
   ftfunc_list_alloc.empty();
   inner_sum_func_list= 0;
   ftfunc_list= &ftfunc_list_alloc;
@@ -7948,13 +7947,13 @@ bool st_select_lex::check_parameters(SELECT_LEX *main_select)
       my_error(ER_CANT_USE_OPTION_HERE, MYF(0), "SQL_NO_CACHE");
       DBUG_RETURN(TRUE);
     }
-    if (main_select->sql_cache == SELECT_LEX::SQL_CACHE)
+    if (parent_lex->sql_cache == LEX::SQL_CACHE)
     {
       my_error(ER_WRONG_USAGE, MYF(0), "SQL_CACHE", "SQL_NO_CACHE");
       DBUG_RETURN(TRUE);
     }
     parent_lex->safe_to_cache_query=0;
-    main_select->sql_cache= SELECT_LEX::SQL_NO_CACHE;
+    parent_lex->sql_cache= LEX::SQL_NO_CACHE;
   }
   if (options & OPTION_TO_QUERY_CACHE)
   {
@@ -7967,13 +7966,13 @@ bool st_select_lex::check_parameters(SELECT_LEX *main_select)
       my_error(ER_CANT_USE_OPTION_HERE, MYF(0), "SQL_CACHE");
       DBUG_RETURN(TRUE);
     }
-    if (main_select->sql_cache == SELECT_LEX::SQL_NO_CACHE)
+    if (parent_lex->sql_cache == LEX::SQL_NO_CACHE)
     {
       my_error(ER_WRONG_USAGE, MYF(0), "SQL_NO_CACHE", "SQL_CACHE");
       DBUG_RETURN(TRUE);
     }
     parent_lex->safe_to_cache_query=1;
-    main_select->sql_cache= SELECT_LEX::SQL_CACHE;
+    parent_lex->sql_cache= LEX::SQL_CACHE;
   }
 
   for (SELECT_LEX_UNIT *u= first_inner_unit(); u; u= u->next_unit())
@@ -9393,6 +9392,40 @@ bool LEX::select_finalize(st_select_lex_unit *expr)
   set_main_unit(expr);
   return check_main_unit_semantics();
 }
+
+
+/*
+  "IN" and "EXISTS" subselect can appear in two statement types:
+
+  1. Statements that can have table columns, such as SELECT, DELETE, UPDATE
+  2. Statements that cannot have table columns, e.g:
+     RETURN ((1) IN (SELECT * FROM t1))
+     IF ((1) IN (SELECT * FROM t1))
+
+  Statements of the first type call master_select_push() in the beginning.
+  In such case everything is properly linked.
+
+  Statements of the second type do not call mastr_select_push().
+  Here we catch the second case and relink thd->lex->builtin_select and
+  select_lex to properly point to each other.
+
+  QQ: Shouldn't subselects of other type also call relink_hack()?
+  QQ: Can we do it at constructor time instead?
+*/
+
+void LEX::relink_hack(st_select_lex *select_lex)
+{
+  if (!select_stack_top) // Statements of the second type
+  {
+    if (!select_lex->get_master()->get_master())
+      ((st_select_lex *) select_lex->get_master())->
+        set_master(&builtin_select);
+    if (!builtin_select.get_slave())
+      builtin_select.set_slave(select_lex->get_master());
+  }
+}
+
+
 
 bool SELECT_LEX_UNIT::set_lock_to_the_last_select(Lex_select_lock l)
 {

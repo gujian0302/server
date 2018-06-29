@@ -677,13 +677,6 @@ public:
   ulonglong options;
 
   /*
-    In sql_cache we store SQL_CACHE flag as specified by user to be
-    able to restore SELECT statement from internal structures.
-  */
-  enum e_sql_cache { SQL_CACHE_UNSPECIFIED, SQL_NO_CACHE, SQL_CACHE };
-  e_sql_cache sql_cache;
-
-  /*
     result of this query can't be cached, bit field, can be :
       UNCACHEABLE_DEPENDENT_GENERATED
       UNCACHEABLE_DEPENDENT_INJECTED
@@ -2920,8 +2913,12 @@ struct LEX: public Query_tables_list
 {
   SELECT_LEX_UNIT unit;                         /* most upper unit */
   inline SELECT_LEX *first_select_lex() {return unit.first_select();}
+
+private:
   SELECT_LEX builtin_select;
   /* current SELECT_LEX in parsing */
+
+public:
   SELECT_LEX *current_select;
   /* list of all SELECT_LEX */
   SELECT_LEX *all_selects_list;
@@ -3151,6 +3148,14 @@ public:
   bool next_is_main; // use "main" SELECT_LEX for nrxt allocation;
   bool next_is_down; // use "main" SELECT_LEX for nrxt allocation;
   st_parsing_options parsing_options;
+  uint8 lex_options; // see OPTION_LEX_*
+  /*
+    In sql_cache we store SQL_CACHE flag as specified by user to be
+    able to restore SELECT statement from internal structures.
+  */
+  enum e_sql_cache { SQL_CACHE_UNSPECIFIED, SQL_NO_CACHE, SQL_CACHE };
+  e_sql_cache sql_cache;
+
   Alter_info alter_info;
   /*
     For CREATE TABLE statement last element of table list which is not
@@ -4264,6 +4269,7 @@ public:
                                   LEX_CSTRING *alias);
   bool parsed_create_view(SELECT_LEX_UNIT *unit, int check);
   bool select_finalize(st_select_lex_unit *expr);
+  void relink_hack(st_select_lex *select_lex);
 };
 
 
