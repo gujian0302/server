@@ -12778,16 +12778,6 @@ select_outvar:
           }
         ;
 
-/*
-opt_into:
-*/
-          /* empty */
-/*
-        | into
-        ;
-*/
-
-
 into:
           INTO into_destination
           {
