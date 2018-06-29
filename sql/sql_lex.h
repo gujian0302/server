@@ -162,6 +162,23 @@ public:
 };
 
 
+/**
+  ORDER BY ... LIMIT parameters;
+*/
+class Lex_order_limit_lock: public Sql_alloc
+{
+public:
+  SQL_I_List<st_order> *order_list;   /* ORDER clause */
+  Lex_select_lock lock;
+  Lex_select_limit limit;
+
+  Lex_order_limit_lock() :order_list(NULL)
+  {}
+
+  bool set_to(st_select_lex *sel);
+};
+
+
 enum sub_select_type
 {
   UNSPECIFIED_TYPE,

@@ -791,25 +791,6 @@ public:
 
 struct st_order;
 
-/**
-  ORDER BY ... LIMIT parameters;
-*/
-class Lex_order_limit_lock
-{
-public:
-  SQL_I_List<st_order> *order_list;   /* ORDER clause */
-  Lex_select_lock lock;
-  Lex_select_limit limit;
-
-  static void *operator new(size_t size, MEM_ROOT *mem_root) throw ()
-  { return alloc_root(mem_root, size); }
-  Lex_order_limit_lock() :order_list(NULL)
-  {}
-
-  bool set_to(st_select_lex *sel);
-};
-
-
 class Load_data_param
 {
 protected:
