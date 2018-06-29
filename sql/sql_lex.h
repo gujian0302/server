@@ -971,6 +971,8 @@ public:
   bool set_nest_level(int new_nest_level);
   bool check_parameters(SELECT_LEX *main_select);
 
+  bool set_lock_to_the_last_select(Lex_select_lock l);
+
   friend class st_select_lex;
 };
 
@@ -4262,7 +4264,6 @@ public:
                                   LEX_CSTRING *alias);
   bool parsed_create_view(SELECT_LEX_UNIT *unit, int check);
   bool select_finalize(st_select_lex_unit *expr);
-  bool set_lock_to_the_last_select(SELECT_LEX_UNIT *unit, Lex_select_lock l);
 };
 
 

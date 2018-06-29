@@ -8851,16 +8851,22 @@ void Lex_select_lock::set_to(SELECT_LEX *sel)
 {
   if (defined_lock)
   {
-    sel->parent_lex->safe_to_cache_query= 0;
-    if (update_lock)
-    {
-      sel->lock_type= TL_WRITE;
-      sel->set_lock_for_tables(TL_WRITE);
-    }
+    if (sel->master_unit() &&
+        sel == sel->master_unit()->fake_select_lex)
+      sel->master_unit()->set_lock_to_the_last_select(*this);
     else
     {
-      sel->lock_type= TL_READ_WITH_SHARED_LOCKS;
-      sel->set_lock_for_tables(TL_READ_WITH_SHARED_LOCKS);
+      sel->parent_lex->safe_to_cache_query= 0;
+      if (update_lock)
+      {
+        sel->lock_type= TL_WRITE;
+        sel->set_lock_for_tables(TL_WRITE);
+      }
+      else
+      {
+        sel->lock_type= TL_READ_WITH_SHARED_LOCKS;
+        sel->set_lock_for_tables(TL_READ_WITH_SHARED_LOCKS);
+      }
     }
   }
 }
@@ -9388,18 +9394,17 @@ bool LEX::select_finalize(st_select_lex_unit *expr)
   return check_main_unit_semantics();
 }
 
-bool LEX::set_lock_to_the_last_select(SELECT_LEX_UNIT *unit,
-                                      Lex_select_lock l)
+bool SELECT_LEX_UNIT::set_lock_to_the_last_select(Lex_select_lock l)
 {
   if (l.defined_lock)
   {
-    SELECT_LEX *sel= unit->first_select();
+    SELECT_LEX *sel= first_select();
     while (sel->next_select())
       sel= sel->next_select();
     if (sel->braces)
     {
       my_error(ER_WRONG_USAGE, MYF(0), "lock options",
-               "end of the SELECT statement");
+               "End SELECT expression");
       return TRUE;
     }
     l.set_to(sel);
