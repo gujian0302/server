@@ -8999,3 +8999,410 @@ Item *LEX::create_item_query_expression(THD *thd,
   return new (thd->mem_root)
     Item_singlerow_subselect(thd, unit->first_select());
 }
+
+
+/**
+  Process unit parsed in brackets
+*/
+
+bool LEX::parsed_unit_in_brackets(SELECT_LEX_UNIT *unit)
+{
+  SELECT_LEX *first_in_nest= unit->pre_last_parse->next_select()->first_nested;
+  if (first_in_nest->first_nested != first_in_nest)
+  {
+    /* There is a priority jump starting from first_in_nest */
+    if (create_priority_nest(first_in_nest) == NULL)
+      return true;
+  }
+  push_select(unit->fake_select_lex);
+  return false;
+}
+
+
+/**
+  Process tail of unit parsed in brackets
+*/
+SELECT_LEX *LEX::parsed_unit_in_brackets_tail(SELECT_LEX_UNIT *unit,
+                                              Lex_order_limit_lock * l)
+{
+  pop_select();
+  if (l)
+  {
+    (l)->set_to(unit->fake_select_lex);
+  }
+  return unit->first_select();
+}
+
+
+/**
+  Process select parsed in brackets
+*/
+
+SELECT_LEX *LEX::parsed_select(SELECT_LEX *sel, Lex_order_limit_lock * l)
+{
+  pop_select();
+  if (l)
+  {
+    if (sel->next_select())
+    {
+      SELECT_LEX_UNIT *unit= sel->master_unit();
+      if (!unit)
+        unit= create_unit(sel);
+      if (!unit)
+        return NULL;
+      if (!unit->fake_select_lex->is_set_query_expr_tail)
+        l->set_to(unit->fake_select_lex);
+      else
+      {
+        sel= wrap_unit_into_derived(unit);
+        if (!sel)
+          return NULL;
+        l->set_to(sel);
+      }
+    }
+    else if (!sel->is_set_query_expr_tail)
+    {
+      l->set_to(sel);
+    }
+    else
+    {
+      SELECT_LEX_UNIT *unit= create_unit(sel);
+      if (!unit)
+        return NULL;
+      sel= wrap_unit_into_derived(unit);
+      if (!sel)
+        return NULL;
+      l->set_to(sel);
+    }
+  }
+  return sel;
+}
+
+
+/**
+  Process select parsed in brackets
+*/
+
+SELECT_LEX *LEX::parsed_select_in_brackets(SELECT_LEX *sel,
+                                           Lex_order_limit_lock * l)
+{
+  sel->braces= TRUE;
+  return parsed_select(sel, l);
+}
+
+
+SELECT_LEX_UNIT *LEX::parsed_select_expr_start(SELECT_LEX *s1, SELECT_LEX *s2,
+                                               enum sub_select_type unit_type,
+                                               bool distinct)
+{
+  SELECT_LEX_UNIT *res;
+  SELECT_LEX *sel1;
+  SELECT_LEX *sel2;
+  if (!s1->next_select())
+    sel1= s1;
+  else
+  {
+    sel1= wrap_unit_into_derived(s1->master_unit());
+    if (!sel1)
+      return NULL;
+  }
+  if (!s2->next_select())
+    sel2= s2;
+  else
+  {
+    sel2= wrap_unit_into_derived(s2->master_unit());
+    if (!sel2)
+      return NULL;
+  }
+  sel1->link_neighbour(sel2);
+  sel2->set_linkage_and_distinct(unit_type, distinct);
+  sel2->first_nested= sel1->first_nested= sel1;
+  res= create_unit(sel1);
+  if (res == NULL)
+    return NULL;
+  res->pre_last_parse= sel1;
+  return res;
+}
+
+
+SELECT_LEX_UNIT *LEX::parsed_select_expr_cont(SELECT_LEX_UNIT *unit,
+                                              SELECT_LEX *s2,
+                                              enum sub_select_type unit_type,
+                                              bool distinct, bool oracle)
+{
+  SELECT_LEX *sel1;
+  if (!s2->next_select())
+    sel1= s2;
+  else
+  {
+    sel1= wrap_unit_into_derived(s2->master_unit());
+    if (!sel1)
+      return NULL;
+  }
+  SELECT_LEX *last= unit->pre_last_parse->next_select();
+
+  int cmp= oracle? 0 : cmp_unit_op(unit_type, last->linkage);
+  if (cmp == 0)
+  {
+    sel1->first_nested= last->first_nested;
+  }
+  else if (cmp > 0)
+  {
+    last->first_nested= unit->pre_last_parse;
+    sel1->first_nested= last;
+  }
+  else /* cmp < 0 */
+  {
+    SELECT_LEX *first_in_nest= last->first_nested;
+    if (first_in_nest->first_nested != first_in_nest)
+    {
+      /* There is a priority jump starting from first_in_nest */
+      if ((last= create_priority_nest(first_in_nest)) == NULL)
+        return NULL;
+    }
+    sel1->first_nested= last->first_nested;
+  }
+  last->link_neighbour(sel1);
+  sel1->set_master_unit(unit);
+  sel1->set_linkage_and_distinct(unit_type, distinct);
+  unit->pre_last_parse= last;
+  return unit;
+}
+
+/**
+  Process parsed select in body
+*/
+
+SELECT_LEX_UNIT *LEX::parsed_body_select(SELECT_LEX *sel,
+                                         Lex_order_limit_lock * l)
+{
+  if (!(sel= parsed_select(sel, l)))
+    return NULL;
+
+  SELECT_LEX_UNIT *res= create_unit(sel);
+  return res;
+}
+
+/**
+  Process parsed unit in body
+*/
+
+bool LEX::parsed_body_unit(SELECT_LEX_UNIT *unit)
+{
+  SELECT_LEX *first_in_nest=
+    unit->pre_last_parse->next_select()->first_nested;
+  if (first_in_nest->first_nested != first_in_nest)
+  {
+    /* There is a priority jump starting from first_in_nest */
+    if (create_priority_nest(first_in_nest) == NULL)
+      return true;
+  }
+  push_select(unit->fake_select_lex);
+  return false;
+}
+
+/**
+  Process parsed tail of unit in body
+
+  TODO: make processing for double tail case
+*/
+
+SELECT_LEX_UNIT *LEX::parsed_body_unit_tail(SELECT_LEX_UNIT *unit,
+                                            Lex_order_limit_lock * l)
+{
+  pop_select();
+  if (l)
+  {
+    (l)->set_to(unit->fake_select_lex);
+  }
+  return unit;
+}
+
+/**
+  Process subselect parsing
+*/
+
+SELECT_LEX *LEX::parsed_subselect(SELECT_LEX_UNIT *unit, char *place)
+{
+  if (!expr_allows_subselect ||
+      sql_command == (int)SQLCOM_PURGE)
+  {
+    thd->parse_error(ER_SYNTAX_ERROR, place);
+    return NULL;
+  }
+
+  // Add the subtree of subquery to the current SELECT_LEX
+  SELECT_LEX *curr_sel= select_stack_head();
+  DBUG_ASSERT(current_select == curr_sel);
+  if (curr_sel)
+  {
+    curr_sel->register_unit(unit, &curr_sel->context);
+    curr_sel->add_statistics(unit);
+  }
+
+  return unit->first_select();
+}
+
+
+/**
+  Process INSERT-like select
+*/
+
+bool LEX::parsed_insert_select(SELECT_LEX *first_select)
+{
+  if (sql_command == SQLCOM_INSERT ||
+      sql_command == SQLCOM_REPLACE)
+  {
+    if (sql_command == SQLCOM_INSERT)
+      sql_command= SQLCOM_INSERT_SELECT;
+    else
+      sql_command= SQLCOM_REPLACE_SELECT;
+  }
+  insert_select_hack(first_select);
+  if (check_main_unit_semantics())
+    return true;
+
+  // fix "main" select
+  SELECT_LEX *blt= pop_select();
+  DBUG_ASSERT(blt == &builtin_select);
+  push_select(first_select);
+  return false;
+}
+
+
+bool LEX::parsed_TVC_start()
+{
+  SELECT_LEX *sel;
+  many_values.empty();
+  insert_list= 0;
+  if (!(sel= alloc_select(TRUE)) ||
+        push_select(sel))
+    return true;
+  sel->init_select();
+  sel->braces= FALSE; // just initialisation
+  return false;
+}
+
+
+SELECT_LEX *LEX::parsed_TVC_end()
+{
+
+  SELECT_LEX *res= pop_select(); // above TVC select
+  if (!(res->tvc=
+        new (thd->mem_root) table_value_constr(many_values,
+          res,
+          res->options)))
+    return NULL;
+  many_values.empty();
+  return res;
+}
+
+
+TABLE_LIST *LEX::parsed_derived_select(SELECT_LEX *sel, int for_system_time,
+                                       LEX_CSTRING *alias)
+{
+  TABLE_LIST *res;
+  derived_tables|= DERIVED_SUBQUERY;
+  sel->linkage= DERIVED_TABLE_TYPE;
+  sel->braces= FALSE;
+  // Add the subtree of subquery to the current SELECT_LEX
+  SELECT_LEX *curr_sel= select_stack_head();
+  DBUG_ASSERT(current_select == curr_sel);
+  SELECT_LEX_UNIT *unit= sel->master_unit();
+  if (!unit)
+  {
+    unit= create_unit(sel);
+    if (!unit)
+      return NULL;
+  }
+  curr_sel->register_unit(unit, &curr_sel->context);
+  curr_sel->add_statistics(unit);
+
+  Table_ident *ti= new (thd->mem_root) Table_ident(unit);
+  if (ti == NULL)
+    return NULL;
+  if (!(res= curr_sel->add_table_to_list(thd, ti, alias, 0,
+                                         TL_READ, MDL_SHARED_READ)))
+    return NULL;
+  if (for_system_time)
+  {
+    res->vers_conditions= vers_conditions;
+  }
+  return res;
+}
+
+TABLE_LIST *LEX::parsed_derived_unit(SELECT_LEX_UNIT *unit,
+                                     int for_system_time,
+                                     LEX_CSTRING *alias)
+{
+  TABLE_LIST *res;
+  derived_tables|= DERIVED_SUBQUERY;
+  unit->first_select()->linkage= DERIVED_TABLE_TYPE;
+
+  // Add the subtree of subquery to the current SELECT_LEX
+  SELECT_LEX *curr_sel= select_stack_head();
+  DBUG_ASSERT(current_select == curr_sel);
+  curr_sel->register_unit(unit, &curr_sel->context);
+  curr_sel->add_statistics(unit);
+
+  Table_ident *ti= new (thd->mem_root) Table_ident(unit);
+  if (ti == NULL)
+    return NULL;
+  if (!(res= curr_sel->add_table_to_list(thd, ti, alias, 0,
+                                         TL_READ, MDL_SHARED_READ)))
+    return NULL;
+  if (for_system_time)
+  {
+    res->vers_conditions= vers_conditions;
+  }
+  return res;
+}
+
+bool LEX::parsed_create_view(SELECT_LEX_UNIT *unit, int check)
+{
+  SQL_I_List<TABLE_LIST> *save= &first_select_lex()->table_list;
+  set_main_unit(unit);
+  if (check_main_unit_semantics())
+    return true;
+  first_select_lex()->table_list.push_front(save);
+  current_select= first_select_lex();
+  size_t len= thd->m_parser_state->m_lip.get_cpp_ptr() -
+    create_view->select.str;
+  void *create_view_select= thd->memdup(create_view->select.str, len);
+  create_view->select.length= len;
+  create_view->select.str= (char *) create_view_select;
+  size_t not_used;
+  trim_whitespace(thd->charset(),
+      &create_view->select, &not_used);
+  create_view->check= check;
+  parsing_options.allows_variable= TRUE;
+  return false;
+}
+
+bool LEX::select_finalize(st_select_lex_unit *expr)
+{
+  sql_command= SQLCOM_SELECT;
+  selects_allow_into= TRUE;
+  selects_allow_procedure= TRUE;
+  set_main_unit(expr);
+  return check_main_unit_semantics();
+}
+
+bool LEX::set_lock_to_the_last_select(SELECT_LEX_UNIT *unit,
+                                      Lex_select_lock l)
+{
+  if (l.defined_lock)
+  {
+    SELECT_LEX *sel= unit->first_select();
+    while (sel->next_select())
+      sel= sel->next_select();
+    if (sel->braces)
+    {
+      my_error(ER_WRONG_USAGE, MYF(0), "lock options",
+               "end of the SELECT statement");
+      return TRUE;
+    }
+    l.set_to(sel);
+  }
+  return FALSE;
+}
