@@ -2632,7 +2632,6 @@ create:
           create_body
           {
             LEX *lex= thd->lex;
-            //lex->current_select= &lex->builtin_select;
             if ((lex->create_info.used_fields & HA_CREATE_USED_ENGINE) &&
                 !lex->create_info.db_type)
             {
@@ -2696,7 +2695,6 @@ create:
 	    Lex->create_info.used_fields|= HA_CREATE_USED_SEQUENCE;
             Lex->create_info.sequence= 1;
 
-            //lex->current_select= &lex->builtin_select;
             if ((lex->create_info.used_fields & HA_CREATE_USED_ENGINE) &&
                 !lex->create_info.db_type)
             {
